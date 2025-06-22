@@ -649,6 +649,9 @@ function App() {
                 currentMonth: billData.monthlyBill,
                 potentialSavings: billData.monthlyBill * 0.25,
               }}
+              savedBills={savedBills}
+              currentBillData={billData}
+              userName={user.name}
             />
           )}
         </>

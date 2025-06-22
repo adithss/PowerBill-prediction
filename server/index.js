@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 app.post("/api/chat", async (req, res) => {
-  const { message } = req.body;
+  const { message, context } = req.body;
 
   if (!message || typeof message !== "string") {
     return res.status(400).json({
@@ -19,11 +19,67 @@ app.post("/api/chat", async (req, res) => {
   }
 
   console.log("Received message:", message);
+  console.log("Received context:", context);
 
   // Try Google Gemini with updated model name
   if (process.env.GEMINI_API_KEY) {
     try {
+      // Enhanced prompt with context data
+      let contextPrompt = "";
+
+      if (context) {
+        contextPrompt = `
+Context about the user's energy usage:
+- User name: ${context.userName || "User"}
+- Total saved bills: ${context.totalBills || 0}
+- Average monthly bill: $${(context.averageMonthlyBill || 0).toFixed(2)}
+
+${
+  context.currentBill
+    ? `Current Bill Data:
+- Monthly bill: $${context.currentBill.monthlyBill.toFixed(2)}
+- Monthly usage: ${context.currentBill.totalKwh.toFixed(1)} kWh
+- Daily average: ${context.currentBill.dailyAverage.toFixed(1)} kWh
+- Top appliances: ${context.currentBill.topAppliances
+        .map((app) => `${app.name} ($${app.monthlyCost.toFixed(2)}/month)`)
+        .join(", ")}
+`
+    : ""
+}
+
+${
+  context.billHistory && context.billHistory.length > 0
+    ? `Recent Bill History:
+${context.billHistory
+  .slice(0, 3)
+  .map(
+    (bill) =>
+      `- ${bill.name} (${bill.month} ${bill.year}): $${bill.monthlyBill.toFixed(
+        2
+      )} - ${bill.totalKwh.toFixed(1)} kWh`
+  )
+  .join("\n")}
+`
+    : ""
+}
+
+${
+  context.prediction
+    ? `Prediction Data:
+- Usage level: ${context.prediction.usageLevel}
+- Current month estimate: $${(context.prediction.currentMonth || 0).toFixed(2)}
+- Potential savings: $${(context.prediction.potentialSavings || 0).toFixed(2)}
+`
+    : ""
+}
+
+Use this context to provide personalized energy advice and answer questions about their specific usage patterns.
+`;
+      }
+
       const prompt = `You are a helpful energy assistant. Help users save money on electricity bills and provide energy-saving tips. Keep responses concise and practical.
+
+${contextPrompt}
 
 User question: ${message}
 
@@ -47,7 +103,7 @@ Assistant response:`;
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 150,
+            maxOutputTokens: 200, // Increased for more detailed responses
           },
         },
         {
@@ -67,20 +123,86 @@ Assistant response:`;
     }
   }
 
-  // Fallback with enhanced responses
-  const reply = getEnergyResponse(message);
+  // Enhanced fallback with context
+  const reply = getEnergyResponse(message, context);
   res.json({ reply, model: "fallback" });
 });
 
-function getEnergyResponse(message) {
+function getEnergyResponse(message, context = null) {
   const lowerMessage = message.toLowerCase();
 
+  // Personalized responses based on context
+  if (context && context.currentBill && lowerMessage.includes("my bill")) {
+    return `Based on your current usage, you're spending about $${context.currentBill.monthlyBill.toFixed(
+      2
+    )}/month (${context.currentBill.totalKwh.toFixed(1)} kWh). ${
+      context.currentBill.topAppliances.length > 0
+        ? `Your top energy consumer is ${
+            context.currentBill.topAppliances[0].name
+          } at $${context.currentBill.topAppliances[0].monthlyCost.toFixed(
+            2
+          )}/month.`
+        : ""
+    } Want tips to reduce this?`;
+  }
+
+  if (
+    context &&
+    context.billHistory &&
+    context.billHistory.length > 0 &&
+    lowerMessage.includes("history")
+  ) {
+    const latestBill = context.billHistory[0];
+    return `You have ${context.totalBills} saved bills. Your latest bill "${
+      latestBill.name
+    }" from ${latestBill.month} ${
+      latestBill.year
+    } was $${latestBill.monthlyBill.toFixed(
+      2
+    )}. Your average monthly bill is $${context.averageMonthlyBill.toFixed(
+      2
+    )}.`;
+  }
+
+  if (context && context.prediction && lowerMessage.includes("prediction")) {
+    return `Your current usage level is ${
+      context.prediction.usageLevel
+    }. This month's estimated bill is $${(
+      context.prediction.currentMonth || 0
+    ).toFixed(2)}. You could potentially save up to $${(
+      context.prediction.potentialSavings || 0
+    ).toFixed(2)} with energy-efficient practices!`;
+  }
+
+  // Standard responses
   if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-    return "Hello! I'm your energy assistant. How can I help you save on your electricity bill today?";
+    const greeting =
+      context && context.userName ? `Hello ${context.userName}!` : "Hello!";
+    return `${greeting} I'm your energy assistant. ${
+      context && context.currentBill
+        ? `I can see your current bill is $${context.currentBill.monthlyBill.toFixed(
+            2
+          )}.`
+        : ""
+    } How can I help you save on your electricity bill today?`;
   }
 
   if (lowerMessage.includes("save") || lowerMessage.includes("reduce")) {
-    return "Here are quick energy-saving tips: Use LED bulbs, unplug devices when not in use, set AC to 78°F, and run appliances during off-peak hours. These can reduce your bill by 15-25%.";
+    let tips =
+      "Here are quick energy-saving tips: Use LED bulbs, unplug devices when not in use, set AC to 78°F, and run appliances during off-peak hours. These can reduce your bill by 15-25%.";
+
+    if (
+      context &&
+      context.currentBill &&
+      context.currentBill.topAppliances.length > 0
+    ) {
+      const topAppliance = context.currentBill.topAppliances[0];
+      tips += ` Focus on your ${
+        topAppliance.name
+      } - it's costing you $${topAppliance.monthlyCost.toFixed(2)}/month.`;
+    }
+
+    return tips;
   }
 
   if (lowerMessage.includes("bill") || lowerMessage.includes("cost")) {

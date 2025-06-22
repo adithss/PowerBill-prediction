@@ -1,6 +1,35 @@
 import React, { useState, useRef, useEffect } from "react";
 import { MessageCircle, Send, Bot, User, X } from "lucide-react";
 
+// Import the types you need
+interface SavedBill {
+  id: string;
+  name: string;
+  month: string;
+  year: number;
+  appliances: any[];
+  settings: any;
+  calculation: {
+    monthlyBill: number;
+    yearlyBill: number;
+    totalKwh: number;
+    dailyAverage: number;
+    applianceBreakdown: any[];
+    categoryBreakdown: any[];
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface BillCalculation {
+  monthlyBill: number;
+  yearlyBill: number;
+  totalKwh: number;
+  dailyAverage: number;
+  applianceBreakdown: any[];
+  categoryBreakdown: any[];
+}
+
 // Define types inline
 interface ChatMessage {
   id: string;
@@ -10,15 +39,23 @@ interface ChatMessage {
 }
 
 interface BoltChatBotProps {
-  // Made optional since you might not have this
   prediction?: {
     usageLevel?: string;
     currentMonth?: number;
     potentialSavings?: number;
   };
+  // Add new props for saved bills and current bill data
+  savedBills?: SavedBill[];
+  currentBillData?: BillCalculation | null;
+  userName?: string;
 }
 
-export const BoltChatBot: React.FC<BoltChatBotProps> = ({ prediction }) => {
+export const BoltChatBot: React.FC<BoltChatBotProps> = ({
+  prediction,
+  savedBills = [],
+  currentBillData,
+  userName = "User",
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -60,6 +97,49 @@ export const BoltChatBot: React.FC<BoltChatBotProps> = ({ prediction }) => {
     }
   }, [prediction]);
 
+  // Function to prepare context data for the chatbot
+  const prepareContextData = () => {
+    const context = {
+      userName,
+      currentBill: currentBillData
+        ? {
+            monthlyBill: currentBillData.monthlyBill,
+            yearlyBill: currentBillData.yearlyBill,
+            totalKwh: currentBillData.totalKwh,
+            dailyAverage: currentBillData.dailyAverage,
+            topAppliances: currentBillData.applianceBreakdown
+              .slice(0, 3)
+              .map((item) => ({
+                name: item.appliance.name,
+                monthlyCost: item.monthlyCost,
+                monthlyKwh: item.monthlyKwh,
+                percentage: item.percentage,
+              })),
+          }
+        : null,
+      billHistory: savedBills.map((bill) => ({
+        name: bill.name,
+        month: bill.month,
+        year: bill.year,
+        monthlyBill: bill.calculation.monthlyBill,
+        totalKwh: bill.calculation.totalKwh,
+        topAppliance:
+          bill.calculation.applianceBreakdown[0]?.appliance.name || "Unknown",
+      })),
+      totalBills: savedBills.length,
+      averageMonthlyBill:
+        savedBills.length > 0
+          ? savedBills.reduce(
+              (sum, bill) => sum + bill.calculation.monthlyBill,
+              0
+            ) / savedBills.length
+          : 0,
+      prediction: prediction || null,
+    };
+
+    return context;
+  };
+
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
 
@@ -78,12 +158,18 @@ export const BoltChatBot: React.FC<BoltChatBotProps> = ({ prediction }) => {
     try {
       console.log("Sending message:", currentMessage);
 
+      // Prepare context data
+      const contextData = prepareContextData();
+
       const response = await fetch("http://localhost:5000/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: currentMessage }),
+        body: JSON.stringify({
+          message: currentMessage,
+          context: contextData, // Send context data
+        }),
       });
 
       console.log("Response status:", response.status);
