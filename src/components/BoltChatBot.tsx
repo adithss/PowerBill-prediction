@@ -161,16 +161,19 @@ export const BoltChatBot: React.FC<BoltChatBotProps> = ({
       // Prepare context data
       const contextData = prepareContextData();
 
-      const response = await fetch("http://localhost:5000/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: currentMessage,
-          context: contextData, // Send context data
-        }),
-      });
+      const response = await fetch(
+        "https://powerbill-prediction-1.onrender.com/api/chat",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: currentMessage,
+            context: contextData, // Send context data
+          }),
+        }
+      );
 
       console.log("Response status:", response.status);
 
@@ -248,7 +251,9 @@ export const BoltChatBot: React.FC<BoltChatBotProps> = ({
   // Test connection function
   const testConnection = async () => {
     try {
-      const response = await fetch("http://localhost:5000/api/health");
+      const response = await fetch(
+        "https://powerbill-prediction-1.onrender.com/api/health"
+      );
       const data = await response.json();
       console.log("Health check:", data);
     } catch (error) {
